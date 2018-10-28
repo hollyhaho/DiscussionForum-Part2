@@ -4,6 +4,7 @@ from flask_basicauth import BasicAuth
 import sqlite3
 import uuid
 
+
 app = flask.Flask(__name__)
 app.config['DEBUG'] = True
 
@@ -32,7 +33,7 @@ basic_auth = Authentication(app)
 def get_db(db_index):
     database_name = '_database' + str(db_index)
     db = getattr(g, database_name, None)
-    print(DATABASES[db_index])
+    print("DB Name", DATABASES[db_index])
 
     if db is None:
         db = g._database = sqlite3.connect(DATABASES[db_index])
@@ -52,11 +53,18 @@ def init_db():
     with app.app_context():
         for i in range(0, 4):
             db = get_db(i)
-            print(db)
+            print("DB NAME: ", db)
             with app.open_resource(SQL[i], mode='r') as f:
-                print(SQL[i])
+                print("SQL NAME: ", SQL[i])
                 db.cursor().executescript(f.read())
             db.commit()
+
+#Create Command initdb
+#To use command, run in terminal export FLASK_APP = appname, flask initdb
+@app.cli.command('init_db')
+def initdb_command():
+    init_db()
+    print('Initialize the database.')        
 
 def dict_factory(cursor, row):
     d = {}
@@ -66,7 +74,7 @@ def dict_factory(cursor, row):
 #Function using for query database
 #Fetch each data one by one based on the query provided
 def query_db(query, db_index, args=(), one=False):
-    print(db_index)
+    print("DB index: ", db_index)
     conn = get_db(db_index)
     conn.row_factory = dict_factory
     cur = conn. cursor()
@@ -115,6 +123,7 @@ def get_server_id(user_id):
     
     return int(user_id) % 3 + 1
 
+#GET FORUM
 @app.route('/forums', methods = ['GET'])
 def api_forums():
     query = "SELECT * FROM forums;"
@@ -169,7 +178,6 @@ def api_threads(forum_id):
         threads = query_db(query, db_index)
         return jsonify(threads)
 
-
 #POST THREAD
 @app.route('/forums/<int:forum_id>', methods=['POST'])
 @basic_auth.required
@@ -186,7 +194,7 @@ def post_thread(forum_id):
     query = 'SELECT * FROM forums WHERE id = ' + str(forum_id)
     db_index = 0
     forum = query_db(query, db_index)
-    print(forum)
+    print("DB forum ",forum)
     if len(forum) == 0:
         error = '404 No forum exists with the forum id of ' + str(forum_id)
         return make_response(jsonify({'error': error}), 404)
@@ -195,8 +203,8 @@ def post_thread(forum_id):
     db.execute('insert into threads (Id, thread_title, thread_creator, forum_Id) values (?, ?, ?, ?)',(str(thread_id), title, creator, str(forum_id)))
     db.commit()
  
-    print(thread_id)
-    print(get_server_id(thread_id))
+    print("thread id: ", thread_id)
+    print("server id: ", get_server_id(thread_id))
     post_server_id = get_server_id(thread_id)
     db = get_db(post_server_id)
     # Insert text as a new post
@@ -208,5 +216,39 @@ def post_thread(forum_id):
     response.status_code = 201
     return response
 
+#GET POST
+#List posts in the specified thread
+@app.route('/forums/<int:forum_id>/<uuid:thread_id>', methods=['GET'])
+def get_post(forum_id, thread_id):
+    print(forum_id, thread_id)
+    # thread_id = uuid.uuid4()
+
+     # Select from forums on forum id to make sure that the forum exists
+    query = 'SELECT * FROM forums WHERE id = ' + str(forum_id)
+    db_index = 0
+    forum = query_db(query, db_index)
+    if not forum:
+        error = '404 No forum exists with the forum id of ' + str(forum_id)
+        return make_response(jsonify({'error': error}), 404)
+
+    # Select from threads on thread_id to make sure thread exists
+    query = 'SELECT * FROM threads WHERE Id = ' + str(thread_id)
+    # post_server_id = get_server_id(thread_id)
+    #TESTINGGGG post_server_id
+    dbindex = 0
+    thread = query_db(query, dbindex)
+    print("thread: ", thread)
+
+    if not thread:
+        error = '404 No thread exists with the thread id of ' + str(thread_id)
+        return make_response(jsonify({'error': error}), 404)
+    timestamp = getTimeStamp('post')
+
+    query = "SELECT post_authorId as author, post_text as text, {} as timestamp FROM posts WHERE post_threadId = {} AND post_forumid = {}".format(timestamp, str(thread_id), str(forum_id))
+    
+    post = query_db(query, dbindex)
+    return jsonify(post)
+
+#POST POST
 if __name__ == "__main__":
     app.run(debug=True)
